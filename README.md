@@ -1,8 +1,8 @@
-# 🌤️ Projekt: Weather RAG na Klastrze k3s (Hyper-V)
+#  Projekt: Weather RAG na Klastrze k3s (Hyper-V)
 
 Dokumentacja wdrożenia lokalnego klastra Kubernetes (k3s) na maszynach wirtualnych Hyper-V, służącego do przetwarzania danych pogodowych i generowania porad AI przy użyciu modelu LLM (Ollama).
 
-## 📋 Spis treści
+##  Spis treści
 
 ---
 
@@ -12,7 +12,7 @@ Stawiamy dwie maszyny wirtualne na Hyper-V. Używamy Debian 12 z racji jego lekk
 
 ### Plik: `Vagrantfile`
 
-> ⚠️ Uwaga: Przed uruchomieniem podmień wartości w nawiasach (swój ...) na swoje rzeczywiste dane (MAC adresy, klucz SSH, IP, Domena).
+> Przed uruchomieniem podmień wartości w nawiasach (swój ...) na swoje rzeczywiste dane (MAC adresy, klucz SSH, IP, Domena).
 > 
 
 ```yaml
@@ -113,7 +113,7 @@ Logujemy się przez SSH kluczem podanym w konfiguracji vagrant na maszyny i inst
 
 ### Na maszynie Master (`k3s-master`)
 
-Instalujemy serwer, wyłączamy Traefik (zrobimy to "na czysto") i ustawiamy uprawnienia do configu.
+Instalujemy serwer, wyłączamy Traefik i ustawiamy uprawnienia do configu.
 
 ```bash
 # SSH na mastera
