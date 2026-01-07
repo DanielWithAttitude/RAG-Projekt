@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-scripts
+  namespace: default
+data:
+  producer.py: |
+    import time
+    import json
+    import requests
+    from kafka import KafkaProducer
+    from kafka.errors import NoBrokersAvailable
+
+    def create_producer():
+        while True:
+            try:
+                print("Proba polaczenia z Kafka...")
+                producer = KafkaProducer(
+                    bootstrap_servers='my-cluster-kafka-bootstrap.kafka.svc:9092',
+                    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+                )
+                print("Polaczono z Kafka!")
+                return producer
+            except NoBrokersAvailable:
+                print("Kafka niedostepna. Ponawiam za 5 sekund...")
+                time.sleep(5)
+            except Exception as e:
+                print(f"Inny blad Kafki: {e}. Ponawiam...")
+                time.sleep(5)
+
+    producer = create_producer()
+
+    LOCATIONS = [
+        {"city": "Bialystok", "lat": 53.1325, "lon": 23.1688},
+        {"city": "Bydgoszcz", "lat": 53.1235, "lon": 18.0084},
+        {"city": "Gdansk", "lat": 54.3520, "lon": 18.6466},
+        {"city": "Gorzow Wlkp", "lat": 52.7368, "lon": 15.2288},
+        {"city": "Katowice", "lat": 50.2584, "lon": 19.0275},
+        {"city": "Kielce", "lat": 50.8703, "lon": 20.6275},
+        {"city": "Krakow", "lat": 50.0647, "lon": 19.9450},
+        {"city": "Lublin", "lat": 51.2465, "lon": 22.5684},
+        {"city": "Lodz", "lat": 51.7592, "lon": 19.4560},
+        {"city": "Olsztyn", "lat": 53.7784, "lon": 20.4801},
+        {"city": "Opole", "lat": 50.6751, "lon": 17.9213},
+        {"city": "Poznan", "lat": 52.4064, "lon": 16.9252},
+        {"city": "Rzeszow", "lat": 50.0413, "lon": 21.9990},
+        {"city": "Szczecin", "lat": 53.4289, "lon": 14.5530},
+        {"city": "Torun", "lat": 53.0138, "lon": 18.5984},
+        {"city": "Warszawa", "lat": 52.2297, "lon": 21.0122},
+        {"city": "Wroclaw", "lat": 51.1079, "lon": 17.0385},
+        {"city": "Zielona Gora", "lat": 51.9356, "lon": 15.5062}
+    ]
+
+    def get_weather_description(code):
+        if code == 0: return "Bezchmurnie"
+        if 1 <= code <= 3: return "Czesciowe zachmurzenie"
+        if 45 <= code <= 48: return "Mgla"
+        if 51 <= code <= 55: return "Mzawka"
+        if 61 <= code <= 65: return "Deszcz"
+        if 71 <= code <= 75: return "Snieg"
+        if 95 <= code <= 99: return "Burza"
+        return "Nieznana pogoda"
+
+    def fetch_weather(location):
+        try:
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={location['lat']}&longitude={location['lon']}&current_weather=true"
+            response = requests.get(url, timeout=5)
+            data = response.json()
+
+            if 'current_weather' in data:
+                cw = data['current_weather']
+                return {
+                    "city": location['city'],
+                    "temp": cw['temperature'],
+                    "wind_speed": cw['windspeed'],
+                    "condition": get_weather_description(cw['weathercode'])
+                }
+        except Exception as e:
+            print(f"Blad pobierania pogody dla {location['city']}: {e}")
+            return None
+
+    print("Startuje pętle wysylania danych...")
+    while True:
+        for loc in LOCATIONS:
+            weather_data = fetch_weather(loc)
+            if weather_data:
+                print(f"Wysylam dane: {weather_data}")
+                producer.send('weather-data', weather_data)
+
+        print("Czekam 60 sekund...")
+        time.sleep(60)
+
+  consumer_rag.py: |
+    import json
+    import time
+    import requests
+    from kafka import KafkaConsumer
+    from kafka.errors import NoBrokersAvailable
+
+    print("Startuje RAG Consumer...")
+
+    def create_consumer():
+        while True:
+            try:
+                print("Proba polaczenia z Kafka...")
+                consumer = KafkaConsumer(
+                    'weather-data',
+                    bootstrap_servers='my-cluster-kafka-bootstrap.kafka.svc:9092',
+                    auto_offset_reset='latest',
+                    value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+                )
+                print("Polaczono z Kafka!")
+                return consumer
+            except NoBrokersAvailable:
+                print("Kafka niedostepna. Ponawiam za 5 sekund...")
+                time.sleep(5)
+            except Exception as e:
+                print(f"Inny blad Kafki: {e}. Ponawiam...")
+                time.sleep(5)
+
+    consumer = create_consumer()
+    OLLAMA_URL = "http://ollama-service.default.svc:80/api/generate"
+
+    for message in consumer:
+        w = message.value
+        print(f"Otrzymano LIVE pogode: {w}")
+
+        context = (f"Miasto: {w['city']}. "
+                   f"Temperatura: {w['temp']} stopni Celsjusza. "
+                   f"Warunki: {w['condition']}. "
+                   f"Predkosc wiatru: {w['wind_speed']} km/h.")
+
+        user_query = f"Jestem w miescie {w['city']}, jak powinienem sie ubrac i czy brac parasol?"
+        full_prompt = f"Context: {context}\\nQuestion: {user_query}\\nAnswer as a helpful assistant based strictly on the context provided. Keep it short."
+
+        payload = {
+            "model": "tinyllama",
+            "prompt": full_prompt,
+            "stream": False
+        }
+
+        try:
+            response = requests.post(OLLAMA_URL, json=payload, timeout=30)
+            ai_text = response.json().get('response', '')
+            print(f"--- AI Porada dla {w['city']} ---\\n{ai_text}\\n---------------------------")
+        except Exception as e:
+            print(f"Blad polaczenia z LLM: {e}")
