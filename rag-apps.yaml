@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weather-producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: weather-producer
+  template:
+    metadata:
+      labels:
+        app: weather-producer
+    spec:
+      containers:
+      - name: producer
+        image: python:3.9-slim
+        command: ["/bin/sh", "-c"]
+        args:
+          - pip install kafka-python requests && python /app/producer.py
+        volumeMounts:
+        - name: script-vol
+          mountPath: /app
+      volumes:
+      - name: script-vol
+        configMap:
+          name: rag-scripts
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-consumer
+  template:
+    metadata:
+      labels:
+        app: rag-consumer
+    spec:
+      containers:
+      - name: consumer
+        image: python:3.9-slim
+        command: ["/bin/sh", "-c"]
+        args:
+          - pip install kafka-python requests && python /app/consumer_rag.py
+        volumeMounts:
+        - name: script-vol
+          mountPath: /app
+      volumes:
+      - name: script-vol
+        configMap:
+          name: rag-scripts
