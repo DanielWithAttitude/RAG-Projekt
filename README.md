@@ -677,3 +677,5 @@ EOF
     ```bash
     python test_rag_full.py
     ```
+Przykład działania aplikacji:
+<img width="1021" height="485" alt="image" src="https://github.com/user-attachments/assets/93481ae8-6dbe-49c5-9861-1fe34206e152" />
