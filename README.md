@@ -7,30 +7,35 @@ Dokumentacja wdrożenia lokalnego klastra Kubernetes (k3s) na maszynach wirtualn
 ---
 
 ## 1. Infrastruktura (Vagrant & Hyper-V)
-
-Stawiamy dwie maszyny wirtualne na Hyper-V. Używamy Debian 12 z racji jego lekkości. Kluczowym elementem jest konfiguracja sieci – wymuszamy statyczne IP za pomocą konfiguracji Hyper-V w Vagrant oraz  `systemd-networkd` i dopasowania po MAC adresach, aby ominąć problemy z DHCP w Hyper-V.
+```powershell
+https://developer.hashicorp.com/vagrant/downloads - Instalacja vagranta
+# Wykonujemy poniższą komendę z uprawnieniami admina
+winrm quickconfig -q
+```
+Stawiamy dwie maszyny wirtualne na Hyper-V. Używamy Debian 12 z racji jego lekkości. Przy stawianiu maszyny używamy wirtualnego przełącznika "Default Switch"
 
 ### Plik: `Vagrantfile`
 
-> Przed uruchomieniem podmień wartości w nawiasach (swój ...) na swoje rzeczywiste dane (MAC adresy, klucz SSH, IP, Domena).
 > 
 
 ```yaml
 VAGRANTFILE_API_VERSION = "2"
 
 NODES = {
-  "k3s-master" => { cpus: 2, memory: 2048, mac: "00:15:5d:8b:5e:54(swój mac addr)", ip: "10.0.0.28(swoje ip)", gw: "10.0.0.1", dns: "10.0.0.1" },
-  "k3s-worker" => { cpus: 2, memory: 2048, mac: "00:15:5d:8b:5e:55(swój mac addr)", ip: "10.0.0.29(swoje ip)", gw: "10.0.0.1", dns: "10.0.0.1" }
+  "k3s-master" => { cpus: 2, memory: 2048 },
+  "k3s-worker" => { cpus: 2, memory: 2048 }
 }
+
+if !File.exist?("./vagrant_rsa")
+  system("ssh-keygen -t rsa -b 2048 -f ./vagrant_rsa -q -N ''")
+end
+SSH_PUB_KEY = File.read("./vagrant_rsa.pub").strip
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.box = "generic/debian12"
   config.ssh.insert_key = false
+  config.ssh.private_key_path = ["./vagrant_rsa", "~/.vagrant.d/insecure_private_key"]
   config.vm.synced_folder ".", "/vagrant", disabled: true
-
-  public_key = <<-KEY.strip
-ssh-rsa AAAAB3Nz(swój klucz)
-KEY
 
   NODES.each do |name, opts|
     config.vm.define name do |node|
@@ -41,55 +46,24 @@ KEY
         hv.cpus         = opts[:cpus]
         hv.memory       = opts[:memory]
         hv.linked_clone = true
-        hv.mac          = opts[:mac]
+        hv.enable_virtualization_extensions = true
       end
-
-      # Używamy vSwitch "Internal", bez autokonfiguracji. W razie innej nazwy switcha trzeba ją podmienić 
-      node.vm.network "public_network", bridge: "Internal", auto_config: false
 
       node.vm.provision "shell", inline: <<-SHELL
         set -euxo pipefail
 
-        # SSH root pubkey
+        # Konfiguracja SSH (klucz publiczny)
         install -d -m 700 /root/.ssh
         touch /root/.ssh/authorized_keys
         chmod 600 /root/.ssh/authorized_keys
-        grep -qxF '#{public_key}' /root/.ssh/authorized_keys || echo '#{public_key}' >> /root/.ssh/authorized_keys
-
+        grep -qxF '#{SSH_PUB_KEY}' /root/.ssh/authorized_keys || echo '#{SSH_PUB_KEY}' >> /root/.ssh/authorized_keys
+        
         if grep -qE '^#?PermitRootLogin' /etc/ssh/sshd_config; then
-          sed -i 's/^#\\\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+          sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
         else
           echo 'PermitRootLogin prohibit-password' >> /etc/ssh/sshd_config
         fi
         systemctl restart ssh
-
-        # === Statyczny adres IP przez systemd-networkd ===
-        cat >/etc/systemd/network/10-hyperv.network <<'EOF'
-        [Match]
-        MACAddress=#{opts[:mac].downcase}
-
-        [Network]
-        Address=#{opts[:ip]}/24
-        Gateway=#{opts[:gw]}
-        DNS=#{opts[:dns]}
-        Domains=home.internal 
-        IPv6AcceptRA=no
-        EOF
-
-        # Wyłącz wszelkie DHCP na tej karcie
-        pkill -f dhclient || true
-
-        # Enable i restart systemd-resolved
-        systemctl enable systemd-networkd systemd-resolved
-        systemctl restart systemd-networkd
-
-        if [ -e /run/systemd/resolve/stub-resolv.conf ]; then
-          ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-        else
-          printf "nameserver #{opts[:dns]}\\\\nsearch home.internal\\\\n" > /etc/resolv.conf
-        fi
-
-        (sleep 2 && reboot) &
       SHELL
     end
   end
@@ -114,6 +88,11 @@ Logujemy się przez SSH kluczem podanym w konfiguracji vagrant na maszyny i inst
 ### Na maszynie Master (`k3s-master`)
 
 Instalujemy serwer, wyłączamy Traefik i ustawiamy uprawnienia do configu.
+```bash
+#SSH do mastera
+vagrant ssh k3s-master
+```
+
 
 ```bash
 # SSH na mastera
@@ -123,7 +102,7 @@ curl -sfL https://get.k3s.io | sh -s - server --disable traefik --write-kubeconf
 cat /var/lib/rancher/k3s/server/node-token
 # Pobieramy IP mastera
 ip addr show eth0 | grep inet
-# W moim przypadku 10.0.0.28
+
 ```
 
 ### Na maszynie Worker (`k3s-worker`)
@@ -162,6 +141,7 @@ Bash
 ```bash
 kubectl create namespace kafka
 kubectl apply -f 'https://strimzi.io/install/latest?namespace=kafka' -n kafka
+kubectl get pods -A
 ```
 
 ### Definicja klastra i topica (`kafka-cluster.yaml`)
@@ -237,6 +217,7 @@ Bash
 kubectl apply -f kafka-cluster.yaml
 # Czekamy aż pod kafki wstanie
 kubectl get pods -n kafka
+kubectl get pods -A
 ```
 
 ---
@@ -270,8 +251,12 @@ spec:
         - containerPort: 11434
         resources:
           requests:
-            memory: "1Gi"
+            memory: "2Gi"
             cpu: "1000m"
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5; ollama serve & sleep 5; ollama pull tinyllama"]
 ---
 apiVersion: v1
 kind: Service
@@ -293,6 +278,7 @@ Bash
 
 ```bash
 kubectl apply -f ollama-deployment.yaml
+kubectl get pods -A
 ```
 
 ---
@@ -460,6 +446,7 @@ data:
 
 ```bash
 kubectl apply -f app-code.yaml
+kubectl get pods -A
 ```
 
 ---
@@ -651,7 +638,7 @@ while True:
             while True:
                 user_query = input(f"\nTwoje pytanie dotyczace {selected_city} (lub wpisz 'zmien' / 'exit'): ")
                 
-                if user_query.lower() in ['zmien', 'back', 'wroc']:
+                if user_query.lower() in ['zmien miasto', 'back', 'wroc']:
                     break # Wracamy do wyboru miasta
                 if user_query.lower() in ['exit', 'quit', 'wyjdz']:
                     print("Do widzenia!")
