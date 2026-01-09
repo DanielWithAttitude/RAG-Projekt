@@ -2,10 +2,6 @@
 
 Dokumentacja wdrożenia lokalnego klastra Kubernetes (k3s) na maszynach wirtualnych Hyper-V, służącego do przetwarzania danych pogodowych i generowania porad AI przy użyciu modelu LLM (Ollama).
 
-##  Spis treści
-
----
-
 ## 1. Infrastruktura (Vagrant & Hyper-V)
 ```powershell
 https://developer.hashicorp.com/vagrant/downloads - Instalacja vagranta
