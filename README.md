@@ -4,6 +4,10 @@ Dokumentacja wdrożenia lokalnego klastra Kubernetes (k3s) na maszynach wirtualn
 
 ## 1. Infrastruktura (Vagrant & Hyper-V)
 ```powershell
+# przygotowanie hyper-v jeśli nie jest aktywne, może być wymagany restart
+Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
+#sprawdzenie statusu hyper-v
+
 https://developer.hashicorp.com/vagrant/downloads - Instalacja vagranta
 # Wykonujemy poniższą komendę z uprawnieniami admina
 winrm quickconfig -q
@@ -71,8 +75,7 @@ end
 Bash
 
 ```yaml
-# Postawienie maszyn
-vagrant up
+vagrant up --provider=hyperv
 ```
 
 ---
