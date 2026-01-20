@@ -7,6 +7,7 @@ Dokumentacja wdrożenia lokalnego klastra Kubernetes (k3s) na maszynach wirtualn
 # przygotowanie hyper-v jeśli nie jest aktywne, może być wymagany restart
 Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
 #sprawdzenie statusu hyper-v
+Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V
 
 https://developer.hashicorp.com/vagrant/downloads - Instalacja vagranta
 # Wykonujemy poniższą komendę z uprawnieniami admina
