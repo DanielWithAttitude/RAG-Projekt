@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-client-code
+  namespace: default
+data:
+  rag_app.py: |
+    import json
+    import requests
+    import sys
+    import uuid
+    import time
+    from kafka import KafkaConsumer
+
+    CITIES = [
+        "Bialystok", "Bydgoszcz", "Gdansk", "Gorzow Wlkp", "Katowice",
+        "Kielce", "Krakow", "Lublin", "Lodz", "Olsztyn",
+        "Opole", "Poznan", "Rzeszow", "Szczecin", "Torun",
+        "Warszawa", "Wroclaw", "Zielona Gora"
+    ]
+
+    def get_weather_for_city(target_city):
+        print(f"\n>>> Szukam najnowszych danych dla: {target_city}...")
+        print("(Czekaj, az producer wysle dane...)")
+
+        # Nowy consumer dla kazdego zapytania = swieze dane
+        consumer = KafkaConsumer(
+            'weather-data',
+            bootstrap_servers='my-cluster-kafka-bootstrap.kafka.svc:9092',
+            auto_offset_reset='latest',
+            group_id=f"client-{uuid.uuid4()}",
+            value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+        )
+
+        weather_data = None
+        for message in consumer:
+            data = message.value
+            if data['city'] == target_city:
+                weather_data = data
+                break
+
+        consumer.close()
+        return weather_data
+
+    def ask_llm(weather, user_query):
+        print("\n>>> Generowanie odpowiedzi...")
+        context_text = (f"Weather in {weather['city']}: "
+                        f"Temperature {weather['temp']} C, "
+                        f"Condition {weather['condition']}, "
+                        f"Wind {weather['wind_speed']} km/h.")
+
+        full_prompt = (f"Context: {context_text}\n"
+                       f"User Question: {user_query}\n"
+                       f"Instruction: Answer short and helpful based on context.")
+
+        try:
+            payload = {"model": "tinyllama", "prompt": full_prompt, "stream": False}
+            response = requests.post("http://ollama-service.default.svc:80/api/generate", json=payload, timeout=90)
+            return response.json().get('response', 'Blad odpowiedzi modelu.')
+        except Exception as e:
+            return f"Blad polaczenia: {e}"
+
+    # --- PĘTLA GŁÓWNA ---
+    while True:
+        print("\n" + "="*40)
+        print(" DOSTEPNE MIASTA (SYSTEM RAG):")
+        mid = len(CITIES) // 2
+        for i in range(mid):
+            col1 = f"{i+1}. {CITIES[i]}"
+            col2 = f"{i+1+mid}. {CITIES[i+mid]}"
+            print(f"{col1:<20} {col2}")
+        print("0. WYJSCIE")
+        print("="*40)
+
+        try:
+            raw = input(f"Wybierz (0-{len(CITIES)}): ")
+            choice = int(raw)
+            if choice == 0: break
+
+            if 1 <= choice <= len(CITIES):
+                city = CITIES[choice - 1]
+                weather = get_weather_for_city(city)
+                print(f"\n✅ POGODA: {weather['city']} | {weather['temp']} C | {weather['condition']}")
+
+                while True:
+                    q = input(f"\nPytanie o {city} (lub 'back'): ")
+                    if q.lower() in ['back', 'zmien', 'wroc']: break
+                    print(f"AI: {ask_llm(weather, q).strip()}")
+                    print("-" * 20)
+            else:
+                print("Zly numer.")
+        except ValueError:
+            print("To nie liczba.")
+        except KeyboardInterrupt:
+            break
