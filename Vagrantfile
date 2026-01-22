@@ -1,7 +1,7 @@
 VAGRANTFILE_API_VERSION = "2"
 
 NODES = {
-  "k3s-master" => { cpus: 2, memory: 2048 },
+  "k3s-master" => { cpus: 2, memory: 4096 },
   "k3s-worker" => { cpus: 2, memory: 2048 }
 }
 
