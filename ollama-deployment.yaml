@@ -20,8 +20,12 @@ spec:
         - containerPort: 11434
         resources:
           requests:
-            memory: "1Gi"
+            memory: "2Gi"
             cpu: "1000m"
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5; ollama serve & sleep 5; ollama pull tinyllama"]
 ---
 apiVersion: v1
 kind: Service
