@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-client
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-client
+  template:
+    metadata:
+      labels:
+        app: rag-client
+    spec:
+      containers:
+      - name: client
+        image: python:3.9-slim
+        # Instalujemy biblioteki przy starcie i idziemy spać (czekamy na uzytkownika)
+        command: ["/bin/sh", "-c"]
+        args:
+          - pip install kafka-python requests && echo "Klient Gotowy!" && sleep infinity
+        volumeMounts:
+        - name: code-vol
+          mountPath: /app
+      volumes:
+      - name: code-vol
+        configMap:
+          name: rag-client-code
